@@ -78,14 +78,61 @@ class DefiniteIntegral
 #!csharp
 
 #r "nuget: xunit, 2.8.1"
-
+#r "nuget:ScottPlot, 5.0.35"
+using System.Diagnostics;
 using Xunit;
-
-var X = (double x) => x;
+using Microsoft.DotNet.Interactive.Formatting;
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(400, 300)), HtmlFormatter.MimeType);
+Stopwatch Time = new Stopwatch();
+ScottPlot.Plot plt = new();
+double summarytime=0;
+double[] dataX = new double[8]; 
+double[] dataY = new double[8];
 var SIN = (double x) => Math.Sin(x);
+for (double i =1e-1;i>=1e-6;i=i/10){//Вычисление времени для каждого шага
+Time.Start();
+Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, i, 8), 1e-4);
+Time.Stop();
+Console.WriteLine("Вычисленное время {0} с шагом {1}",Time.Elapsed,i);
+Time.Reset();
+}
+for (int j = 2; j<10 ; j++){//Вычисление усреднённого времени для разного количества потоков по оптимально выбранному шагу для моей программы (1e-4)
+    summarytime=0;
+    for (int k=0;k<=9;k++)
+    {
+        Time.Start();
+        Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, 1e-4, j), 1e-4);
+        Time.Stop();
+        summarytime+=Time.ElapsedMilliseconds;
+        //Console.WriteLine(Time.Elapsed+"Elapsed");
+        Console.WriteLine("Вычисленное время {0} с количеством потоков {1}",Time.ElapsedMilliseconds,j);
+        Time.Reset();
 
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-4);
+    }
+    //Console.WriteLine(summarytime/10+"Summary");
+    dataX[j-2]=summarytime/10;
+    dataY[j-2]=j;
+}
+plt.Add.Scatter(dataX, dataY);
+plt
 
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
+#!csharp
 
-Assert.Equal(50, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5);
+#r "nuget: xunit, 2.8.1"
+using System.Diagnostics;
+using Xunit;
+Stopwatch Time = new Stopwatch();
+var SIN = (double x) => Math.Sin(x);
+double a = -100;
+double b = 100;
+double step = 1e-4;
+double midsum=0.0;
+Time.Start();
+for (double i=a+step; i<=b; i+=step)
+                    {
+                    midsum = midsum+((SIN(i)+SIN(i-step))/2)*step;
+                    }
+Time.Stop();
+Console.WriteLine("Вычисленное время {0}",Time.Elapsed);
+Console.WriteLine("Вычисленное время {0}",Time.ElapsedMilliseconds);
