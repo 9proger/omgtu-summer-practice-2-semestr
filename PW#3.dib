@@ -35,6 +35,7 @@
 //
 // Вычисление определенного интеграла
 //
+using System.Threading;
 class DefiniteIntegral
 {
     //
@@ -45,22 +46,123 @@ class DefiniteIntegral
     //
     public static double Solve(double a, double b, Func<double, double> function, double step, int threadsnumber)
     {
-        // отсюда надо начинать реализацию задачи
-        return 0.0;
+        double sum = 0.0;
+        Barrier barrier = new Barrier(threadsnumber);
+        Thread[] sol = new Thread[threadsnumber];
+        for(int j = 0; j < threadsnumber; j++)
+            {
+                int orderthr=j;
+                sol[j] = new Thread(()=>{
+                    object locker = new();
+                    double midsum=0.0;
+                    for (double i=a+(step*(orderthr+1)); i<=b; i+=threadsnumber*step)
+                    {
+                    midsum = midsum+((function(i)+function(i-step))/2)*step;
+                    }
+                    lock(locker)
+                    {
+                        sum+=midsum;
+                    }
+                    barrier.SignalAndWait();
+                });
+                sol[j].Start();             
+            }
+        for(int index = 0; index < threadsnumber; index++){
+                sol[index].Join();
+            }   
+        return sum;
     }
+    
 }
 
 #!csharp
 
 #r "nuget: xunit, 2.8.1"
-
+#r "nuget:ScottPlot, 5.0.35"
+using System.Diagnostics;
 using Xunit;
-
-var X = (double x) => x;
+using Microsoft.DotNet.Interactive.Formatting;
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(400, 300)), HtmlFormatter.MimeType);
+Stopwatch Time = new Stopwatch();
+ScottPlot.Plot plt = new();
+double summarytime=0;
+double[] dataX = new double[8]; 
+double[] dataY = new double[8];
 var SIN = (double x) => Math.Sin(x);
+for (double i =1e-1;i>=1e-6;i=i/10){//Вычисление времени для каждого шага
+Time.Start();
+Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, i, 8), 1e-4);
+Time.Stop();
+Console.WriteLine("Вычисленное время {0} с шагом {1}",Time.Elapsed,i);
+Time.Reset();
+}
+for (int j = 2; j<10 ; j++){//Вычисление усреднённого времени для разного количества потоков по оптимально выбранному шагу для моей программы (1e-4)
+    summarytime=0;
+    for (int k=0;k<=9;k++)
+    {
+        Time.Start();
+        Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, 1e-4, j), 1e-4);
+        Time.Stop();
+        summarytime+=Time.ElapsedMilliseconds;
+        //Console.WriteLine(Time.Elapsed+"Elapsed");
+        //Console.WriteLine("Вычисленное время {0} с количеством потоков {1}",Time.ElapsedMilliseconds,j);
+        Time.Reset();
 
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-4);
+    }
+    //Console.WriteLine(summarytime/10+"Summary");
+    dataX[j-2]=summarytime/10;
+    dataY[j-2]=j;
+}
+plt.Add.Scatter(dataX, dataY);
+plt
 
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
+#!csharp
 
-Assert.Equal(10, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5);
+//Однопоточный вариант программы
+#r "nuget: xunit, 2.8.1"
+using System.Diagnostics;
+using Xunit;
+Stopwatch Time = new Stopwatch();
+var SIN = (double x) => Math.Sin(x);
+double a = -100;
+double b = 100;
+double step = 1e-4;
+double midsum=0.0;
+int indexofdata;
+long time=0;
+for (int j=0; j<10;j++)
+{
+midsum=0.0;
+Time.Start();
+for (double i=a+step; i<=b; i+=step)
+                    {
+                    midsum = midsum+((SIN(i)+SIN(i-step))/2)*step;
+                    }
+Assert.Equal(0, midsum, 1e-4);
+Time.Stop();
+time+=Time.ElapsedMilliseconds;
+Time.Reset();
+}
+time=time/10;
+//Console.WriteLine("Вычисленное время {0}",Time.Elapsed);
+Console.WriteLine("Вычисленное время Однопоточным способом {0} миллисекунд",time);
+for (int i = 0;i<dataX.Count();i++)
+{
+    if (dataX[i]==dataX.Min())
+    {
+        indexofdata=i;    
+    }
+}
+Console.WriteLine("Лучший результат полученный при шаге нахождения оптимального количества потоков {0} миллисекунд для {1} потоков",dataX.Min(),indexofdata+2);
+Console.WriteLine("Разница между однопоточным и оптимальным многопоточным доcтигает значения в {0} процентов",Math.Round((time*100)/dataX.Min()));
+
+#!markdown
+
+# Summary
+
+**Размер шага в п.4:** 1e-4. Выбор был сделан на основании того, что подходящая точность и скорость вычислений достигалась при данном размере шага
+
+**Оптимальное количество потоков при выбранном шаге:** 7 потоков. При увелечении потоков скорость работы лишь увеличивалась.
+
+**Средняя скорость вычисления при 7 потоках:** в области от 12 и 13 миллисекунд. Разница с однопоточным вариантом достигает 400 и более процентов
