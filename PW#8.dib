@@ -35,12 +35,195 @@
 
 #!csharp
 
+public interface ICommand
+{
+    void Execute();
+    int CountOperation{get; set;}
+}
+
+#!csharp
+
 public interface IScheduler
 {
-    bool HasCommand()
+    bool HasCommand();
     ICommand Select();
     void Add(ICommand cmd);
 }
+
+#!csharp
+
+class MyCommand : ICommand
+{
+int id;
+public int CountOperation{get; set;}
+public MyCommand(int id, int CountOperation)
+{
+    this.id = id;
+    this.CountOperation = CountOperation;
+}
+
+public void Execute()
+{
+    Console.WriteLine("Обработка комманды {0}. Сколько осталось Exute для длительной комманды {1}",id,CountOperation);
+    CountOperation--;
+}
+
+}
+
+#!csharp
+
+using System.Collections.Concurrent;
+class Scheduler : IScheduler
+{
+    ConcurrentQueue<ICommand> commandQueue = new ConcurrentQueue<ICommand>();
+    //MyCommand Command;
+    //ServerThread LongQueue=new ServerThread();
+
+public bool HasCommand()
+{
+    if (commandQueue.Count>0)
+    return true;
+    return false;
+}
+public ICommand Select()
+{
+    if (commandQueue.TryDequeue(out ICommand command) && command.CountOperation>0)
+    {
+        return command;
+    }
+    return null;
+}
+public void Add(ICommand cmd)
+{
+    commandQueue.Enqueue(cmd);
+}
+}
+
+#!csharp
+
+using System.Threading;
+public class ServerThread
+{
+    IScheduler sheduler;
+    bool Hard = false;
+    bool Soft = false;
+    Thread thread;
+
+    public ServerThread(IScheduler sheduler)
+    {
+        this.sheduler=sheduler;
+        thread = new Thread(ExecuteCommands);
+        thread.Start();
+    }
+    public void ExecuteCommands()
+    {
+        
+        while (true)
+        {
+            ICommand nextCommand;
+
+                if (sheduler.HasCommand() && !Hard)
+                {
+                    nextCommand = sheduler.Select();
+                }
+                else
+                {
+                    if (Soft || Hard)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+
+            try
+            {
+                nextCommand.Execute();
+                if (nextCommand.CountOperation>0)
+                sheduler.Add(nextCommand);
+
+
+            }
+            catch (Exception ex)
+            {}
+        }
+    }
+
+    public void HardStop()
+    {
+        Hard = true;
+    }
+
+    public void SoftStop()
+    {
+         Soft = true;
+    }
+    public Thread GetThread() => thread;
+}
+
+#!csharp
+
+public class HardStop : ICommand
+{
+    ServerThread  Stop;
+    public int CountOperation{get; set;} = 1;
+    public HardStop(ServerThread thr)
+    {
+        Stop = thr;
+    }
+    public void Execute()
+    {
+        if (Thread.CurrentThread == Stop.GetThread())
+        {
+            CountOperation--;
+            Stop.HardStop();
+            Console.WriteLine("Обработка HardStop");
+        }
+    }
+}
+
+#!csharp
+
+public class SoftStop : ICommand
+{
+    ServerThread Stop;
+    public int CountOperation{get; set;} = 1;
+    public SoftStop(ServerThread Stop)
+    {
+        this.Stop = Stop;
+    }
+    public void Execute()
+    {
+        if (Thread.CurrentThread == Stop.GetThread())
+        {
+            CountOperation--;
+            Stop.SoftStop();
+            Console.WriteLine("Обработка SoftStop");
+        }
+    }
+}
+
+#!csharp
+
+using System.Threading;
+Scheduler sched = new Scheduler();
+ServerThread serverThread = new ServerThread(sched);
+
+for (int i=0;i<8;i++)
+{
+      if (i==3)
+      sched.Add(new MyCommand(i, 3)); //Длительная комманда, разбитая на 3 Execute
+      else if (i==5)
+      sched.Add(new SoftStop(serverThread));  //Можно менять на Hard Stop и Soft Stop
+      else
+      sched.Add(new MyCommand(i, 1));
+
+}
+Thread.Sleep(1000);
+sched.Add(new MyCommand(9, 1)); 
+serverThread.GetThread().Join();
 
 #!markdown
 
