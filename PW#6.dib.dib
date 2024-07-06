@@ -37,9 +37,167 @@
 Для этого следует использовать условные события, которые позволят убедиться, что оба потока запустились и готовы читать и писать объекты и только потом запускать таймер.
 2. Для итогового вывода сравнивать усредненные значения.
 
-#!markdown
+#!csharp
 
-// здесь писать код
+#r "nuget:ScottPlot, 5.0.35"
+using System.Threading;
+using System.Diagnostics;
+using System.Collections.Concurrent;
+using Microsoft.DotNet.Interactive.Formatting;
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(400, 300)), HtmlFormatter.MimeType);
+ScottPlot.Plot plt = new();
+ScottPlot.Plot plt1 = new();
+ScottPlot.Plot plt2 = new();
+private static ManualResetEvent mre = new ManualResetEvent(false);
+var BlCol = new BlockingCollection<int>(2);
+var ConQue = new ConcurrentQueue<int>();
+int AllStart=0;
+bool AllWrt =false;
+Stopwatch Time = new Stopwatch();
+Thread[] BlockW = new Thread[10];
+Thread[] BlockR = new Thread[10];
+Thread[] ConcurrentW = new Thread[10];
+Thread[] ConcurrentR = new Thread[10];
+for (int i=0;i<10;i++){
+BlockW[i] = new Thread(()=>{ // Запись BlockW
+    int indexW=0;
+    Interlocked.Increment(ref AllStart);
+    mre.WaitOne();
+    while(indexW!=1000000)
+    {
+        BlCol.Add(indexW+5);
+        indexW++;
+    }
+    BlCol.CompleteAdding();
+
+});
+BlockR[i] = new Thread(()=>{ // Чтение BlockR
+    int dataB;
+    Interlocked.Increment(ref AllStart);
+    mre.WaitOne();
+    while(!BlCol.IsAddingCompleted)
+    {
+        try
+        {
+            dataB = BlCol.Take();
+        }
+        catch (InvalidOperationException) { }
+        
+    }
+    });
+ConcurrentW[i] = new Thread(()=>{// Запись ConcurrentW
+    AllWrt=false;
+    int indexWQ=0;
+    Interlocked.Increment(ref AllStart);
+    mre.WaitOne();
+    while(indexWQ!=1000000)
+    {
+        ConQue.Enqueue(indexWQ);
+        indexWQ++;
+    }
+    AllWrt=true;
+});
+ConcurrentR[i] = new Thread(()=>{ // Чтение ConcurrentR
+    int dataQ;
+    int data=0;
+    Interlocked.Increment(ref AllStart);
+    mre.WaitOne();
+    while(AllWrt!=true)
+    {
+    while(ConQue.TryDequeue(out dataQ))
+    {
+        data+=dataQ;
+    }
+    }
+});
+}
+double[] dataX = new double[10]; 
+double[] dataY = new double[10];
+double SumBlock=0;
+for (int i=0;i<10;i++){//Тест времени для BlockingCollection
+BlockW[i].Start();
+BlockR[i].Start();
+Thread.Sleep(100);
+if (AllStart%2==0)
+{
+    Time.Start();
+    mre.Set();
+    BlockW[i].Join();
+    BlockR[i].Join();
+    Time.Stop();
+}
+dataX[i]=i+1;
+dataY[i]=Time.ElapsedMilliseconds;
+SumBlock += Time.ElapsedMilliseconds;
+BlCol = new BlockingCollection<int>(2);
+Time.Reset();
+mre.Reset();
+}
+plt.Add.Scatter(dataX, dataY);
+double[] dataX1 = new double[10]; 
+double[] dataY1 = new double[10];
+double SumCurQue=0;
+for (int i=0;i<10;i++){ //Тест времени для ConcurrentQueue
+ConcurrentW[i].Start();
+ConcurrentR[i].Start();
+Thread.Sleep(200);
+if (AllStart%2==0)
+{
+    Time.Start();
+    mre.Set();
+    ConcurrentW[i].Join();
+    ConcurrentR[i].Join();
+    Time.Stop();
+}
+SumCurQue += Time.ElapsedMilliseconds;
+ConQue = new ConcurrentQueue<int>();
+dataX1[i]=i+1;
+dataY1[i]=Time.ElapsedMilliseconds;
+Time.Reset();
+mre.Reset();
+}
+plt1.Add.Scatter(dataX1, dataY1);
+Time.Reset();
+
+double[] dataX2 = new double[10]; 
+double[] dataY2 = new double[10];
+double SumQue=0;
+for (int i=0; i<10;i++) //Тест времени для Queue
+{
+    Time.Start();
+    Queue Que = new Queue();
+    for (int j=0; j<1000000;j++)
+    {
+        Que.Enqueue(j);
+    }
+    for (int j=0; j<1000000;j++)
+    {
+        Que.Dequeue();
+    }
+    Time.Stop();
+    SumQue +=Time.ElapsedMilliseconds;
+    dataX2[i]=i+1;
+    dataY2[i]=Time.ElapsedMilliseconds;
+    Time.Reset();
+}
+plt2.Add.Scatter(dataX2, dataY2);
+Console.WriteLine("Среднее время выполнения BlockingCollection: {0}",SumBlock/10);
+Console.WriteLine("Среднее время выполнения ConcurrentQueue: {0}",SumCurQue/10);
+Console.WriteLine("Среднее время выполнения Queue: {0}",SumQue/10);
+Console.WriteLine("Разница между многопоточным и однопоточным вариантом составляет: {0} процента(ов)",Math.Round(((SumQue/10)*100)/(SumCurQue/10)));
+
+#!csharp
+
+plt //График BlockingCollection
+
+#!csharp
+
+plt1 //График ConcurrentQueue
+
+#!csharp
+
+plt2 //График Queue
 
 #!markdown
 
